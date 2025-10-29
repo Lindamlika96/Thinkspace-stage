@@ -1,0 +1,1135 @@
+// =============================================================================
+// THINKSPACE PRISMA SCHEMA - PARA METHODOLOGY KNOWLEDGE MANAGEMENT SYSTEM
+// =============================================================================
+// This schema implements the PARA methodology (Projects, Areas, Resources, Archive)
+// with additional features for chat, knowledge graphs, and AI integration.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]
+}
+
+// =============================================================================
+// USER MANAGEMENT
+// =============================================================================
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String?  // Optional for OAuth users
+  role      UserRole @default(USER)
+  isActive  Boolean  @default(true)
+
+  // Profile information
+  avatar    String?
+  bio       String?
+  timezone  String?  @default("UTC")
+
+  // Preferences
+  preferences Json?
+  settings    Json?
+
+  // OAuth Accounts
+  accounts  Account[]
+
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lastLoginAt DateTime?
+
+  // PARA Methodology Relations
+  projects  Project[]
+  areas     Area[]
+  resources Resource[]
+  notes     Note[]
+  tasks     Task[]
+  projectTemplates ProjectTemplate[]
+
+  // Sub-Interests and Reviews
+  subInterests SubInterest[]
+  areaReviews  AreaReview[]
+
+  // Chat and AI Relations
+  chats     Chat[]
+  messages  Message[]
+
+  // Knowledge Graph Relations
+  connections   Connection[]
+  graphSnapshots GraphSnapshot[]
+
+  // File Relations
+  files     File[]
+
+  // Activity Relations
+  activities Activity[]
+
+  // Search Relations
+  searches  Search[]
+
+  // Enhanced Resource Relations
+  resourceFolders    ResourceFolder[]
+  resourceSummaries  ResourceSummary[]
+  resourceReferences ResourceReference[]
+  resourceCollections ResourceCollection[]
+
+  @@map("users")
+}
+
+// =============================================================================
+// OAUTH ACCOUNTS
+// =============================================================================
+
+model Account {
+  id                 String  @id @default(cuid())
+  userId             String
+  type               String
+  provider           String
+  providerAccountId  String
+  refresh_token      String?  @db.Text
+  access_token       String?  @db.Text
+  expires_at         Int?
+  token_type         String?
+  scope              String?
+  id_token           String?  @db.Text
+  session_state      String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+// =============================================================================
+// PARA METHODOLOGY - NOTES
+// =============================================================================
+
+model Note {
+  id              String   @id @default(cuid())
+  title           String
+  content         String
+  isPinned        Boolean  @default(false)
+  type            NoteType @default(QUICK)
+
+  // Vector embedding for semantic search
+  embedding       Unsupported("vector(1536)")?
+
+  // Metadata
+  tags            String[]
+  metadata        Json?
+
+  // Relations
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // PARA Relations
+  projects        Project[] @relation("ProjectNotes")
+  areas           Area[]    @relation("AreaNotes")
+  resources       Resource[] @relation("NoteResources")
+  subInterests    SubInterest[] @relation("SubInterestNotes")
+
+  // Chat Relations
+  chats           Chat[]
+
+  // File Relations
+  files           File[]    @relation("NoteFiles")
+
+  // Connection Relations
+  sourceConnections Connection[] @relation("SourceNote")
+  targetConnections Connection[] @relation("TargetNote")
+
+  // Activity Relations
+  activities      Activity[]
+
+  // Resource Reference Relations
+  resourceReferences ResourceReference[]
+
+  // Timestamps
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("notes")
+  @@index([userId, type])
+  @@index([createdAt])
+}
+
+// =============================================================================
+// PARA METHODOLOGY - PROJECTS
+// =============================================================================
+
+model Project {
+  id          String        @id @default(cuid())
+  title       String
+  description String?
+  status      ProjectStatus @default(PLANNING)
+  priority    ProjectPriority @default(MEDIUM)
+
+  // Project details
+  startDate   DateTime?
+  dueDate     DateTime?
+  completedAt DateTime?
+
+  // Progress tracking
+  progress    Int          @default(0) // 0-100
+
+  // Metadata
+  tags        String[]
+  metadata    Json?
+
+  // Relations
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // PARA Relations
+  areas       Area[]       @relation("ProjectAreas")
+  resources   Resource[]   @relation("ProjectResources")
+  notes       Note[]       @relation("ProjectNotes")
+  subInterests SubInterest[] @relation("SubInterestProjects")
+
+  // Chat Relations
+  chats       Chat[]
+
+  // File Relations
+  files       File[]       @relation("ProjectFiles")
+
+  // Connection Relations
+  sourceConnections Connection[] @relation("SourceProject")
+  targetConnections Connection[] @relation("TargetProject")
+
+  // Activity Relations
+  activities  Activity[]
+
+  // Task Relations
+  tasks       Task[]
+
+  // Template Relations
+  templateId  String?
+  template    ProjectTemplate?    @relation("ProjectTemplate", fields: [templateId], references: [id])
+
+  // Resource Reference Relations
+  resourceReferences ResourceReference[]
+
+  // Timestamps
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@map("projects")
+  @@index([userId, status])
+  @@index([dueDate])
+  @@index([priority])
+}
+
+// =============================================================================
+// TASK MANAGEMENT
+// =============================================================================
+
+model Task {
+  id          String     @id @default(cuid())
+  title       String
+  description String?
+  status      TaskStatus @default(TODO)
+  priority    TaskPriority @default(MEDIUM)
+
+  // Task details
+  dueDate     DateTime?
+  startDate   DateTime?
+  completedAt DateTime?
+
+  // Time tracking
+  estimatedHours Float?
+  actualHours    Float?
+
+  // Task organization
+  order       Int        @default(0)
+
+  // Metadata
+  tags        String[]
+  metadata    Json?
+
+  // Relations
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  projectId   String
+  project     Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  // Subtask Relations
+  parentTaskId String?
+  parentTask   Task?      @relation("TaskSubtasks", fields: [parentTaskId], references: [id])
+  subtasks     Task[]     @relation("TaskSubtasks")
+
+  // Task Dependencies
+  dependsOnTasks Task[]    @relation("TaskDependencies")
+  dependentTasks Task[]    @relation("TaskDependencies")
+
+  // Activity Relations
+  activities  Activity[]
+
+  // Timestamps
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  @@map("tasks")
+  @@index([userId, status])
+  @@index([projectId, status])
+  @@index([dueDate])
+  @@index([priority])
+  @@index([order])
+}
+
+// =============================================================================
+// PROJECT TEMPLATES
+// =============================================================================
+
+model ProjectTemplate {
+  id          String              @id @default(cuid())
+  title       String
+  description String?
+  category    ProjectTemplateCategory @default(OTHER)
+
+  // Template content
+  projectData Json                // Project structure and settings
+  taskData    Json?               // Pre-defined tasks
+  milestones  Json?               // Pre-defined milestones
+
+  // Template metadata
+  isPublic    Boolean             @default(false)
+  isOfficial  Boolean             @default(false)
+  tags        String[]
+  metadata    Json?
+
+  // Usage statistics
+  usageCount  Int                 @default(0)
+
+  // Relations
+  userId      String
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Projects created from this template
+  projects    Project[]           @relation("ProjectTemplate")
+
+  // Activity Relations
+  activities  Activity[]
+
+  // Timestamps
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@map("project_templates")
+  @@index([userId, category])
+  @@index([isPublic, isOfficial])
+  @@index([usageCount])
+}
+
+// =============================================================================
+// PARA METHODOLOGY - AREAS
+// =============================================================================
+
+model Area {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  type        AreaType @default(OTHER)
+
+  // Area details
+  isActive    Boolean  @default(true)
+  color       String?  // Hex color for UI
+
+  // PRD Requirements - Area Management
+  responsibilityLevel ResponsibilityLevel @default(MEDIUM)
+  reviewFrequency     ReviewFrequency     @default(MONTHLY)
+
+  // Standards and Criteria
+  standards           Json?               // Array of standards definitions
+  criteria            Json?               // Measurable criteria and assessment tools
+
+  // Review System
+  lastReviewedAt      DateTime?
+  nextReviewDate      DateTime?
+  reviewTemplate      Json?               // Custom review template
+
+  // Area Health Tracking
+  healthScore         Float?              @default(0.0) // 0.0 to 1.0
+  timeInvestment      Json?               // Time tracking data
+
+  // Metadata
+  tags        String[]
+  metadata    Json?
+
+  // Relations
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Sub-Interests Relations
+  subInterests SubInterest[]
+
+  // PARA Relations
+  projects    Project[] @relation("ProjectAreas")
+  resources   Resource[] @relation("AreaResources")
+  notes       Note[]    @relation("AreaNotes")
+
+  // Chat Relations
+  chats       Chat[]
+
+  // File Relations
+  files       File[]    @relation("AreaFiles")
+
+  // Connection Relations
+  sourceConnections Connection[] @relation("SourceArea")
+  targetConnections Connection[] @relation("TargetArea")
+
+  // Activity Relations
+  activities  Activity[]
+
+  // Review History
+  areaReviews AreaReview[]
+
+  // Resource Reference Relations
+  resourceReferences ResourceReference[]
+
+  // Timestamps
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("areas")
+  @@index([userId, type])
+  @@index([isActive])
+  @@index([nextReviewDate])
+  @@index([healthScore])
+}
+
+// =============================================================================
+// SUB-INTERESTS - HIERARCHICAL AREA ORGANIZATION
+// =============================================================================
+
+model SubInterest {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+
+  // Hierarchical structure
+  parentId    String?
+  parent      SubInterest? @relation("SubInterestHierarchy", fields: [parentId], references: [id])
+  children    SubInterest[] @relation("SubInterestHierarchy")
+
+  // Nesting level for performance
+  level       Int      @default(0)
+
+  // Content and notes
+  notes       String?
+  observations String?
+
+  // Metadata
+  tags        String[]
+  metadata    Json?
+
+  // Relations
+  areaId      String
+  area        Area     @relation(fields: [areaId], references: [id], onDelete: Cascade)
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Content associations
+  projects    Project[] @relation("SubInterestProjects")
+  resources   Resource[] @relation("SubInterestResources")
+  notes_rel   Note[]    @relation("SubInterestNotes")
+
+  // Cross-references
+  relatedSubInterests SubInterest[] @relation("RelatedSubInterests")
+  referencedBy        SubInterest[] @relation("RelatedSubInterests")
+
+  // Timestamps
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("sub_interests")
+  @@index([areaId])
+  @@index([userId])
+  @@index([parentId])
+  @@index([level])
+}
+
+// =============================================================================
+// AREA REVIEW SYSTEM
+// =============================================================================
+
+model AreaReview {
+  id          String   @id @default(cuid())
+
+  // Review details
+  reviewDate  DateTime @default(now())
+  reviewType  ReviewType @default(SCHEDULED)
+
+  // Review content
+  notes       String?
+  findings    Json?    // Structured review findings
+  improvements Json?   // Improvement actions identified
+
+  // Scores and assessments
+  healthScore Float?   // 0.0 to 1.0
+  criteriaScores Json? // Individual criteria assessments
+
+  // Review template used
+  templateId  String?
+  template    Json?    // Snapshot of template used
+
+  // Relations
+  areaId      String
+  area        Area     @relation(fields: [areaId], references: [id], onDelete: Cascade)
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Timestamps
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@map("area_reviews")
+  @@index([areaId, reviewDate])
+  @@index([userId, reviewDate])
+  @@index([reviewType])
+}
+
+enum ReviewType {
+  SCHEDULED
+  AD_HOC
+  MILESTONE
+  CRISIS
+}
+
+// =============================================================================
+// PARA METHODOLOGY - RESOURCES
+// =============================================================================
+
+model Resource {
+  id             String       @id @default(cuid())
+  title          String
+  description    String?
+  type           ResourceType @default(OTHER)
+
+  // Resource content
+  sourceUrl      String?
+  filePath       String?
+  contentExtract String?
+
+  // Vector embedding for semantic search
+  embedding      Unsupported("vector(1536)")?
+
+  // Enhanced metadata for PRD features
+  tags           String[]
+  metadata       Json?
+
+  // Content analysis fields
+  extractedTopics String[]     @default([])
+  contentLanguage String?
+  wordCount      Int?
+  readingTime    Int?         // in minutes
+
+  // Organization fields
+  folderId       String?
+  folder         ResourceFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
+  // Duplicate detection
+  contentHash    String?
+  duplicateOf    String?
+  duplicateResource Resource? @relation("ResourceDuplicates", fields: [duplicateOf], references: [id], onDelete: SetNull)
+  duplicates     Resource[] @relation("ResourceDuplicates")
+
+  // Relations
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // PARA Relations
+  projects       Project[]    @relation("ProjectResources")
+  areas          Area[]       @relation("AreaResources")
+  notes          Note[]       @relation("NoteResources")
+  subInterests   SubInterest[] @relation("SubInterestResources")
+
+  // Chat Relations
+  chats          Chat[]
+
+  // File Relations
+  files          File[]       @relation("ResourceFiles")
+
+  // Connection Relations
+  sourceConnections Connection[] @relation("SourceResource")
+  targetConnections Connection[] @relation("TargetResource")
+
+  // Activity Relations
+  activities     Activity[]
+
+  // Enhanced relations for PRD features
+  summaries      ResourceSummary[]
+  references     ResourceReference[] @relation("ResourceReferences")
+  referencedBy   ResourceReference[] @relation("ReferencedResource")
+  collections    ResourceCollection[] @relation("CollectionResources")
+
+  // Timestamps
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@map("resources")
+  @@index([userId, type])
+  @@index([createdAt])
+  @@index([folderId])
+  @@index([contentHash])
+  @@index([duplicateOf])
+}
+
+// =============================================================================
+// KNOWLEDGE GRAPH - CONNECTIONS
+// =============================================================================
+
+model Connection {
+  id        String          @id @default(cuid())
+  strength  Float           @default(1.0)
+  createdBy ConnectionType  @default(MANUAL)
+  metadata  Json?
+
+  // Generic polymorphic fields for universal linking
+  sourceType String?         // 'project', 'area', 'resource', 'note'
+  sourceId   String?         // ID of the source item
+  targetType String?         // 'project', 'area', 'resource', 'note'
+  targetId   String?         // ID of the target item
+
+  // Link type and relationship metadata
+  linkType   String?         // 'RELATED', 'DEPENDS_ON', 'BLOCKS', etc.
+  bidirectional Boolean      @default(true)
+  description   String?
+
+  // Relations
+  userId    String
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Polymorphic relations for source (kept for backward compatibility)
+  sourceNoteId     String?
+  sourceNote       Note?     @relation("SourceNote", fields: [sourceNoteId], references: [id])
+  sourceProjectId  String?
+  sourceProject    Project?  @relation("SourceProject", fields: [sourceProjectId], references: [id])
+  sourceAreaId     String?
+  sourceArea       Area?     @relation("SourceArea", fields: [sourceAreaId], references: [id])
+  sourceResourceId String?
+  sourceResource   Resource? @relation("SourceResource", fields: [sourceResourceId], references: [id])
+
+  // Polymorphic relations for target (kept for backward compatibility)
+  targetNoteId     String?
+  targetNote       Note?     @relation("TargetNote", fields: [targetNoteId], references: [id])
+  targetProjectId  String?
+  targetProject    Project?  @relation("TargetProject", fields: [targetProjectId], references: [id])
+  targetAreaId     String?
+  targetArea       Area?     @relation("TargetArea", fields: [targetAreaId], references: [id])
+  targetResourceId String?
+  targetResource   Resource? @relation("TargetResource", fields: [targetResourceId], references: [id])
+
+  // Timestamps
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@map("connections")
+  @@index([userId])
+  @@index([strength])
+  @@index([sourceType, sourceId])
+  @@index([targetType, targetId])
+  @@index([linkType])
+}
+
+// =============================================================================
+// CHAT AND AI INTEGRATION
+// =============================================================================
+
+model Chat {
+  id          String   @id @default(cuid())
+  title       String
+  type        ChatType @default(GENERAL)
+
+  // Context information
+  contextId   String?  // ID of related Project, Area, Resource, or Note
+
+  // Relations
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // PARA Context Relations (optional)
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id])
+  areaId      String?
+  area        Area?    @relation(fields: [areaId], references: [id])
+  resourceId  String?
+  resource    Resource? @relation(fields: [resourceId], references: [id])
+  noteId      String?
+  note        Note?    @relation(fields: [noteId], references: [id])
+
+  // Messages
+  messages    Message[]
+
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("chats")
+  @@index([userId, type])
+  @@index([createdAt])
+}
+
+model Message {
+  id        String      @id @default(cuid())
+  role      MessageRole
+  content   String
+  metadata  Json?
+
+  // Relations
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chatId    String
+  chat      Chat        @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  // Timestamps
+  createdAt DateTime    @default(now())
+
+  @@map("messages")
+  @@index([chatId, createdAt])
+}
+
+// =============================================================================
+// FILE MANAGEMENT
+// =============================================================================
+
+model File {
+  id          String     @id @default(cuid())
+  filename    String
+  originalName String
+  mimeType    String
+  size        Int
+  path        String
+  status      FileStatus @default(UPLOADING)
+
+  // File processing
+  contentExtract String?
+  metadata       Json?
+
+  // Vector embedding for file content
+  embedding      Unsupported("vector(1536)")?
+
+  // Relations
+  userId         String
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // PARA Relations (optional)
+  projects       Project[]  @relation("ProjectFiles")
+  areas          Area[]     @relation("AreaFiles")
+  resources      Resource[] @relation("ResourceFiles")
+  notes          Note[]     @relation("NoteFiles")
+
+  // Activity Relations
+  activities     Activity[]
+
+  // Timestamps
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@map("files")
+  @@index([userId, status])
+  @@index([mimeType])
+}
+
+// =============================================================================
+// ACTIVITY TRACKING
+// =============================================================================
+
+model Activity {
+  id          String       @id @default(cuid())
+  type        ActivityType
+  description String?
+  metadata    Json?
+
+  // Relations
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // PARA Relations (optional)
+  projectId   String?
+  project     Project?     @relation(fields: [projectId], references: [id])
+  areaId      String?
+  area        Area?        @relation(fields: [areaId], references: [id])
+  resourceId  String?
+  resource    Resource?    @relation(fields: [resourceId], references: [id])
+  noteId      String?
+  note        Note?        @relation(fields: [noteId], references: [id])
+  fileId      String?
+  file        File?        @relation(fields: [fileId], references: [id])
+  taskId      String?
+  task        Task?        @relation(fields: [taskId], references: [id])
+  templateId  String?
+  template    ProjectTemplate? @relation(fields: [templateId], references: [id])
+
+  // Timestamps
+  createdAt   DateTime     @default(now())
+
+  @@map("activities")
+  @@index([userId, type])
+  @@index([createdAt])
+}
+
+// =============================================================================
+// SEARCH AND ANALYTICS
+// =============================================================================
+
+model Search {
+  id          String   @id @default(cuid())
+  query       String
+  results     Json?    // Store search results
+  metadata    Json?
+
+  // Relations
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Timestamps
+  createdAt   DateTime @default(now())
+
+  @@map("searches")
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// =============================================================================
+// KNOWLEDGE GRAPH SNAPSHOTS
+// =============================================================================
+
+model GraphSnapshot {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  data        Json     // Store graph data as JSON
+  metadata    Json?
+
+  // Relations
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("graph_snapshots")
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// =============================================================================
+// RESOURCE MANAGEMENT MODELS
+// =============================================================================
+
+model ResourceFolder {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  color       String?  @default("#6366f1")
+
+  // Hierarchy support
+  parentId    String?
+  parent      ResourceFolder? @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children    ResourceFolder[] @relation("FolderHierarchy")
+
+  // Path for efficient queries (e.g., "/parent/child/grandchild")
+  path        String
+  level       Int      @default(0)
+
+  // Relations
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resources   Resource[]
+
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("resource_folders")
+  @@index([userId, parentId])
+  @@index([path])
+  @@unique([userId, name, parentId])
+}
+
+model ResourceSummary {
+  id          String        @id @default(cuid())
+  content     String
+  type        SummaryType   @default(GENERAL)
+  length      SummaryLength @default(MEDIUM)
+
+  // Quality and feedback
+  qualityScore Float?       // 0.0 to 1.0
+  isApproved   Boolean      @default(false)
+  feedback     String?
+
+  // AI generation metadata
+  model       String?
+  prompt      String?
+  generatedAt DateTime     @default(now())
+
+  // Relations
+  resourceId  String
+  resource    Resource     @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Timestamps
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@map("resource_summaries")
+  @@index([resourceId])
+  @@index([qualityScore])
+}
+
+model ResourceReference {
+  id            String          @id @default(cuid())
+
+  // Reference context
+  context       String?         // Where/how the resource is referenced
+  snippet       String?         // Relevant text snippet
+  referenceType ReferenceType   @default(MANUAL)
+
+  // Relations
+  resourceId    String
+  resource      Resource        @relation("ResourceReferences", fields: [resourceId], references: [id], onDelete: Cascade)
+
+  referencedResourceId String?
+  referencedResource   Resource? @relation("ReferencedResource", fields: [referencedResourceId], references: [id], onDelete: Cascade)
+
+  // Can reference different entity types
+  projectId     String?
+  project       Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  areaId        String?
+  area          Area?           @relation(fields: [areaId], references: [id], onDelete: Cascade)
+
+  noteId        String?
+  note          Note?           @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  userId        String
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Timestamps
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@map("resource_references")
+  @@index([resourceId])
+  @@index([referencedResourceId])
+  @@index([projectId])
+  @@index([areaId])
+  @@index([noteId])
+}
+
+model ResourceCollection {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  color       String?  @default("#10b981")
+  isPublic    Boolean  @default(false)
+
+  // Relations
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  resources   Resource[] @relation("CollectionResources")
+
+  // Timestamps
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("resource_collections")
+  @@index([userId])
+  @@unique([userId, name])
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+  ARCHIVED
+}
+
+enum ProjectPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  BLOCKED
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum ProjectTemplateCategory {
+  SOFTWARE_DEVELOPMENT
+  MARKETING
+  DESIGN
+  RESEARCH
+  EVENT_PLANNING
+  PRODUCT_LAUNCH
+  CONTENT_CREATION
+  BUSINESS_PLANNING
+  EDUCATION
+  PERSONAL
+  OTHER
+}
+
+enum AreaType {
+  RESPONSIBILITY
+  INTEREST
+  LEARNING
+  HEALTH
+  FINANCE
+  CAREER
+  PERSONAL
+  OTHER
+}
+
+enum ResponsibilityLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum ReviewFrequency {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+  QUARTERLY
+  BIANNUALLY
+  ANNUALLY
+  CUSTOM
+}
+
+enum ResourceType {
+  DOCUMENT
+  LINK
+  IMAGE
+  VIDEO
+  AUDIO
+  BOOK
+  ARTICLE
+  RESEARCH
+  REFERENCE
+  TEMPLATE
+  OTHER
+}
+
+enum NoteType {
+  QUICK
+  MEETING
+  IDEA
+  REFLECTION
+  SUMMARY
+  RESEARCH
+  TEMPLATE
+  OTHER
+}
+
+enum ChatType {
+  GENERAL
+  PROJECT
+  AREA
+  RESOURCE
+  NOTE
+  BRAINSTORM
+  ANALYSIS
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum FileStatus {
+  UPLOADING
+  PROCESSING
+  READY
+  ERROR
+}
+
+enum ActivityType {
+  CREATE
+  UPDATE
+  DELETE
+  VIEW
+  SHARE
+  COMMENT
+  CONNECT
+  ARCHIVE
+}
+
+enum ConnectionType {
+  MANUAL
+  AI_SUGGESTED
+  AUTO_GENERATED
+}
+
+enum LinkType {
+  RELATED
+  DEPENDS_ON
+  BLOCKS
+  REFERENCES
+  CONTAINS
+  PART_OF
+  SIMILAR_TO
+  CUSTOM
+}
+
+enum SummaryType {
+  GENERAL
+  TECHNICAL
+  EXECUTIVE
+  BRIEF
+  DETAILED
+  LAYMAN
+}
+
+enum SummaryLength {
+  SHORT
+  MEDIUM
+  LONG
+  CUSTOM
+}
+
+enum ReferenceType {
+  MANUAL
+  AI_SUGGESTED
+  AUTO_GENERATED
+  CITATION
+  MENTION
+  RELATED
+}
