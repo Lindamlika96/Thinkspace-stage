@@ -2,11 +2,14 @@
 FROM node:18-alpine AS builder
 WORKDIR /app
 
-# Install dependencies
+# Copy dependency files first (for better caching)
 COPY package*.json ./
-RUN npm ci
 
-# Copy all files and build
+# Install dependencies
+# 👉 Use npm ci if package-lock.json exists, otherwise fallback to npm install
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+# Copy all source files and build the app
 COPY . .
 RUN npm run build
 
@@ -15,15 +18,19 @@ FROM node:18-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Copy necessary files
+# Copy package files
 COPY --from=builder /app/package*.json ./
-RUN npm ci --omit=dev
+
+# Install only production dependencies
+RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi
+
+# Copy built artifacts and public assets from the builder
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/next.config.js ./next.config.js
 
-# Expose the app port
+# Expose the application port
 EXPOSE 3000
 
-# Start the app
+# Start the application
 CMD ["npx", "next", "start", "-p", "3000"]
