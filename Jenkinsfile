@@ -17,24 +17,22 @@ pipeline {
 
        stage('Build Docker Image') {
     steps {
-        script {
-            echo "🧱 Building Docker image for ThinkSpace..."
+        withCredentials([file(credentialsId: 'thinkspace-env', variable: 'ENV_FILE')]) {
+            script {
+                echo "🧱 Building Docker image for ThinkSpace with env vars..."
 
-            // Optional: Check for .env file
-            sh '''
-                if [ ! -f .env ]; then
-                    echo "⚠️ No .env file found — continuing without environment variables"
-                else
-                    echo "✅ .env file found:"
+                // Copy the env file inside workspace
+                sh '''
+                    cp "$ENV_FILE" .env
+                    echo "✅ Environment variables file injected:"
                     cat .env
-                fi
-            '''
-
-            // Build the Docker image from Dockerfile
-            sh 'docker build -t thinkspace:latest .'
+                    docker build -t thinkspace:latest .
+                '''
+            }
         }
     }
 }
+
 
     }
 
