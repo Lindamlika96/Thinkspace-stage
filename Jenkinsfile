@@ -1,54 +1,27 @@
-pipeline {
-    agent any
-
-    environment {
-        DOCKER_IMAGE = "thinkspace-app"
+stage('Checkout') {
+    steps {
+        // Clone your public GitHub repository
+        git branch: 'main', url: 'https://github.com/Lindamlika96/Thinkspace-stage.git'
     }
+}
 
-    stages {
-        stage('Checkout') {
-            steps {
-                checkout scm
-            }
-        }
+stage('Build Docker Image') {
+    steps {
+        script {
+            echo "🧱 Building Docker image for ThinkSpace..."
 
-        stage('Build') {
-            steps {
-                echo "Building Docker image..."
-                sh 'docker build -t $DOCKER_IMAGE .'
-            }
-        }
+            // Optional: Check for .env file
+            sh '''
+                if [ ! -f .env ]; then
+                    echo "⚠️ No .env file found — continuing without environment variables"
+                else
+                    echo "✅ .env file found:"
+                    cat .env
+                fi
+            '''
 
-        stage('Run Tests') {
-            steps {
-                echo "Running tests..."
-                sh 'npm install'
-                sh 'npm run test'
-            }
-        }
-
-        stage('Push Image') {
-            steps {
-                echo "Tagging and pushing image to Docker Hub (placeholder)"
-                // For now, we only tag locally; we’ll add ECR push later
-                sh 'docker tag $DOCKER_IMAGE latest'
-            }
-        }
-
-        stage('Deploy') {
-            steps {
-                echo "Deploying container locally (test stage)"
-                sh 'docker run -d -p 3000:3000 $DOCKER_IMAGE'
-            }
-        }
-    }
-
-    post {
-        success {
-            echo '✅ Pipeline completed successfully!'
-        }
-        failure {
-            echo '❌ Pipeline failed.'
+            // Build the Docker image from Dockerfile
+            sh 'docker build -t thinkspace:latest .'
         }
     }
 }
