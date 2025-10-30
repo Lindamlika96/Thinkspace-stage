@@ -2,9 +2,7 @@
 FROM node:18-alpine AS builder
 WORKDIR /app
 
-# ----------------------------------------------------------
-# 1️⃣ Accept environment variables from Jenkins
-# ----------------------------------------------------------
+# 1️⃣ Pass environment variables from Jenkins
 ARG OPENAI_API_KEY
 ARG OPENROUTER_API_KEY
 ARG NEXTAUTH_SECRET
@@ -13,7 +11,6 @@ ARG NEO4J_URI
 ARG NEO4J_USERNAME
 ARG NEO4J_PASSWORD
 
-# Make them available at build time
 ENV OPENAI_API_KEY=$OPENAI_API_KEY \
     OPENROUTER_API_KEY=$OPENROUTER_API_KEY \
     NEXTAUTH_SECRET=$NEXTAUTH_SECRET \
@@ -22,23 +19,17 @@ ENV OPENAI_API_KEY=$OPENAI_API_KEY \
     NEO4J_USERNAME=$NEO4J_USERNAME \
     NEO4J_PASSWORD=$NEO4J_PASSWORD
 
-# ----------------------------------------------------------
-# 2️⃣ Copy dependencies and Prisma schema early (for prisma generate)
-# ----------------------------------------------------------
+# 2️⃣ Copy dependency definitions + prisma schema
 COPY package*.json ./
 COPY prisma ./prisma
 
-# Install dependencies safely
+# 3️⃣ Install dependencies safely
 RUN if [ -f package-lock.json ]; then npm ci --legacy-peer-deps; else npm install --legacy-peer-deps; fi
 
-# ----------------------------------------------------------
-# 3️⃣ Copy the rest of the application source code
-# ----------------------------------------------------------
+# 4️⃣ Copy source code
 COPY . .
 
-# ----------------------------------------------------------
-# 4️⃣ Build Next.js app (needs env vars like OPENAI_API_KEY)
-# ----------------------------------------------------------
+# 5️⃣ Build Next.js app (Next 15.x)
 RUN npm run build
 
 # ---- Run stage ----
@@ -46,18 +37,20 @@ FROM node:18-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Copy compiled app and required files
+# Copy dependencies + built app
 COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/next.config.js ./next.config.js
 COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/.next ./.next
+
+# Handle missing public/ folder gracefully
+RUN mkdir -p public
+
+# Copy your Next.js config (uses .mjs)
+COPY --from=builder /app/next.config.mjs ./next.config.mjs
 
 # Install only production deps
 RUN if [ -f package-lock.json ]; then npm ci --omit=dev --legacy-peer-deps; else npm install --omit=dev --legacy-peer-deps; fi
 
-# Expose app port
+# Expose port & run app
 EXPOSE 3000
-
-# Start the application
 CMD ["npx", "next", "start", "-p", "3000"]
