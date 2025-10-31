@@ -22,7 +22,11 @@ ENV OPENAI_API_KEY=$OPENAI_API_KEY \
 COPY package*.json ./
 COPY prisma ./prisma
 
-RUN if [ -f package-lock.json ]; then npm ci --legacy-peer-deps; else npm install --legacy-peer-deps; fi
+# Disable postinstall (prisma generate) in production stage
+ENV PRISMA_SKIP_POSTINSTALL_GENERATE=true
+RUN npm_config_ignore_scripts=true \
+    && if [ -f package-lock.json ]; then npm ci --omit=dev --legacy-peer-deps; else npm install --omit=dev --legacy-peer-deps; fi \
+    && npm_config_ignore_scripts=false
 COPY . .
 
 # Disable persistent webpack caching to save disk space
