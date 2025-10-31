@@ -11,29 +11,31 @@ pipeline {
 
         stage('Checkout') {
             steps {
-                // 🧩 Clone public repo
+                // 🧩 Clone your public repo
                 git branch: 'main', url: 'https://github.com/Lindamlika96/Thinkspace-stage.git'
             }
         }
 
-       stage('Build Docker Image') {
-    steps {
-        withCredentials([file(credentialsId: 'thinkspace-env', variable: 'ENV_FILE')]) {
-            script {
-                echo "🧱 Building Docker image for ThinkSpace with env vars..."
-                sh '''
-                    echo "📂 Copying env file safely..."
-                    cat "$ENV_FILE" > .env
-                    chmod 644 .env
-                    echo "✅ Environment variables file injected:"
-                    cat .env
-                    docker build -t $IMAGE_NAME .
-                '''
+        stage('Build Docker Image') {
+            steps {
+                withCredentials([file(credentialsId: 'thinkspace-env', variable: 'ENV_FILE')]) {
+                    script {
+                        echo "🧱 Building Docker image for ThinkSpace with env vars..."
+
+                        sh '''
+                            echo "📂 Copying env file with sudo permissions..."
+                            sudo cat "$ENV_FILE" > .env
+                            sudo chmod 644 .env
+                            echo "✅ Environment variables file injected:"
+                            sudo cat .env
+
+                            echo "🐳 Building Docker image..."
+                            sudo docker build -t $IMAGE_NAME .
+                        '''
+                    }
+                }
             }
         }
-    }
-}
-
 
         stage('Deploy Container') {
             steps {
@@ -41,27 +43,24 @@ pipeline {
                     echo "🚀 Deploying ThinkSpace container..."
 
                     sh '''
-                        # Stop old container if exists
-                        if [ "$(docker ps -q -f name=$CONTAINER_NAME)" ]; then
-                            echo "🧹 Stopping existing container..."
-                            docker stop $CONTAINER_NAME || true
+                        echo "🧹 Checking existing containers..."
+                        if [ "$(sudo docker ps -q -f name=$CONTAINER_NAME)" ]; then
+                            echo "🛑 Stopping existing container..."
+                            sudo docker stop $CONTAINER_NAME || true
                         fi
 
-                        # Remove old container if exists
-                        if [ "$(docker ps -a -q -f name=$CONTAINER_NAME)" ]; then
+                        if [ "$(sudo docker ps -a -q -f name=$CONTAINER_NAME)" ]; then
                             echo "🗑 Removing old container..."
-                            docker rm $CONTAINER_NAME || true
+                            sudo docker rm $CONTAINER_NAME || true
                         fi
 
-                        # Run the new container
-                        echo "🚀 Starting new ThinkSpace container..."
-                        docker run -d \
+                        echo "🚀 Running new container..."
+                        sudo docker run -d \
                             --name $CONTAINER_NAME \
                             --env-file .env \
                             -p $PORT:3000 \
                             $IMAGE_NAME
 
-                        echo "✅ Deployment successful. Access app at: http://<your-ec2-public-ip>:3000"
                     '''
                 }
             }
@@ -70,8 +69,8 @@ pipeline {
         stage('Cleanup') {
             steps {
                 sh '''
-                    echo "🧹 Cleaning up Docker cache and old images..."
-                    docker system prune -af --volumes || true
+                    echo "🧹 Cleaning up Docker cache and old layers..."
+                    sudo docker system prune -af --volumes || true
                 '''
             }
         }
