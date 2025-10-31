@@ -16,25 +16,24 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
-            steps {
-                withCredentials([file(credentialsId: 'thinkspace-env', variable: 'ENV_FILE')]) {
-                    script {
-                        echo "🧱 Building Docker image for ThinkSpace with env vars..."
-
-                        sh '''
-                            # Copy .env into workspace
-                            cp "$ENV_FILE" .env
-                            echo "✅ Environment variables file injected:"
-                            cat .env
-
-                            # Build image
-                            docker build -t $IMAGE_NAME .
-                        '''
-                    }
-                }
+       stage('Build Docker Image') {
+    steps {
+        withCredentials([file(credentialsId: 'thinkspace-env', variable: 'ENV_FILE')]) {
+            script {
+                echo "🧱 Building Docker image for ThinkSpace with env vars..."
+                sh '''
+                    echo "📂 Copying env file safely..."
+                    cat "$ENV_FILE" > .env
+                    chmod 644 .env
+                    echo "✅ Environment variables file injected:"
+                    cat .env
+                    docker build -t $IMAGE_NAME .
+                '''
             }
         }
+    }
+}
+
 
         stage('Deploy Container') {
             steps {
